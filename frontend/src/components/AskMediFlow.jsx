@@ -169,7 +169,7 @@ export default function AskMediFlow() {
               <div className="border-t border-border p-2 bg-surface/50 flex justify-between items-center shrink-0">
                 <div className="flex items-center text-xs text-muted-foreground">
                   <span className="font-medium text-accent mr-1">AI Enhanced ✓</span>
-                  Powered by {results?.model || 'Llama-3.3-70B'}
+                  Powered by {results?.model || 'Llama-3.1-8B'}
                   {results?.elapsed_time && <span className="ml-2">· {results.elapsed_time}s</span>}
                 </div>
                 <div className="text-xs text-muted-foreground hidden sm:flex items-center">

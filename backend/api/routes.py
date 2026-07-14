@@ -546,7 +546,7 @@ async def get_meeting_brief(
             "relationship_score": hcp.relationship_score,
         },
         "brief": brief_data,
-        "model": "llama-3.3-70b-versatile",
+        "model": "llama-3.1-8b-instant",
     }
 
 
