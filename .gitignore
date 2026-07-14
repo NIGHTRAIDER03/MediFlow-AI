@@ -1,0 +1,21 @@
+# Node.js
+node_modules/
+dist/
+.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+.env
+
+# Docker / Postgres
+interview_pgdata/
+
+# OS specific
+.DS_Store
+Thumbs.db

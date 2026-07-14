@@ -1,0 +1,834 @@
+# MediFlow AI — Implementation Plan
+
+## Overview
+
+**MediFlow AI** is an AI-first CRM for pharmaceutical field representatives to manage interactions with Healthcare Professionals (HCPs). The system features a **LangGraph agent with 6 tools**, dual-mode interaction logging (structured form + conversational AI chat), a dashboard, analytics, rich timeline history, and compliance monitoring — all powered by **Groq's gemma2-9b-it**.
+
+---
+
+## Architecture
+
+```mermaid
+graph TB
+    subgraph Frontend ["Frontend — React + Redux"]
+        Dashboard["📊 Dashboard"]
+        LogPage["📝 Log Interaction"]
+        FormMode["Structured Form"]
+        ChatMode["AI Chat + Voice"]
+        Timeline["📅 Interaction Timeline"]
+        Analytics["📈 Analytics"]
+        Search["🔍 Global Search"]
+    end
+
+    subgraph Auth ["Authentication"]
+        JWT["JWT Token Auth"]
+        Login["Login Page"]
+    end
+
+    subgraph Backend ["Backend — FastAPI"]
+        API["REST API + CORS"]
+        AuthMW["Auth Middleware"]
+        Agent["LangGraph Agent"]
+        Pipeline["AI Processing Pipeline"]
+    end
+
+    subgraph Tools ["LangGraph Tools (6)"]
+        T1["🔧 Log Interaction"]
+        T2["🔧 Edit Interaction"]
+        T3["🔧 Lookup HCP"]
+        T4["🔧 Next Best Action"]
+        T5["🔧 Interaction History"]
+        T6["🔧 Compliance Checker"]
+    end
+
+    subgraph DB ["PostgreSQL"]
+        Users["users"]
+        HCPs["hcps"]
+        Interactions["interactions"]
+        Products["products"]
+        FollowUps["follow_ups"]
+        Notifications["notifications"]
+        AuditLogs["audit_logs"]
+        Sessions["chat_sessions"]
+    end
+
+    Login --> JWT --> AuthMW
+    Frontend --> API
+    API --> AuthMW --> Agent
+    Agent --> Pipeline
+    Pipeline --> Tools
+    Tools --> DB
+```
+
+---
+
+## AI Processing Pipeline
+
+Every user message through the chat interface passes through this pipeline inside the LangGraph agent:
+
+```mermaid
+graph LR
+    A["User Message"] --> B["Intent Detection"]
+    B --> C["Entity Extraction"]
+    C --> D["Sentiment Analysis"]
+    D --> E["Compliance Check"]
+    E --> F["Summary Generation"]
+    F --> G["Recommendation Engine"]
+    G --> H["Tool Execution"]
+    H --> I["Confidence Scoring"]
+    I --> J["Response + Store"]
+```
+
+This pipeline is embedded in the agent's system prompt and tool logic — the LLM handles intent/entity/sentiment naturally, and tools handle storage and compliance.
+
+---
+
+## Proposed Changes
+
+### Component 1: Database Layer (PostgreSQL)
+
+#### [NEW] `backend/database/models.py`
+
+**8 tables:**
+
+| Table | Key Columns | Purpose |
+|-------|-------------|---------|
+| `users` | `id`, `email`, `password_hash`, `full_name`, `role` (rep/manager), `territory`, `is_active`, `created_at` | Sales rep accounts |
+| `hcps` | `id`, `name`, `specialty`, `institution`, `city`, `state`, `email`, `phone`, `npi_number`, `tier` (A/B/C), `preferred_contact_method`, `notes` | Healthcare professionals |
+| `products` | `id`, `brand_name`, `generic_name`, `therapeutic_area`, `indications`, `key_messages` (JSON), `competitors`, `approval_status` | Pharma product catalog |
+| `interactions` | `id`, `hcp_id` (FK), `user_id` (FK), `interaction_date`, `interaction_type` (in-person/virtual/phone/email), `products_discussed` (JSON), `key_topics`, `sentiment` (positive/neutral/negative), `sentiment_score` (float), `follow_up_date`, `follow_up_actions`, `ai_summary`, `ai_confidence` (float), `entities_extracted` (JSON), `compliance_flags` (JSON), `notes`, `samples_dropped` (JSON), `duration_minutes`, `location`, `created_at`, `updated_at` | Core interaction logs |
+| `follow_ups` | `id`, `interaction_id` (FK), `hcp_id` (FK), `user_id` (FK), `due_date`, `action_description`, `status` (pending/completed/overdue), `priority` (high/medium/low), `completed_at` | Follow-up tracking |
+| `notifications` | `id`, `user_id` (FK), `title`, `message`, `type` (follow_up/overdue/insight), `is_read`, `related_entity_type`, `related_entity_id`, `created_at` | In-app notifications |
+| `audit_logs` | `id`, `user_id` (FK), `action`, `entity_type`, `entity_id`, `old_values` (JSON), `new_values` (JSON), `ip_address`, `created_at` | Compliance audit trail |
+| `chat_sessions` | `id`, `user_id` (FK), `thread_id`, `title`, `messages` (JSON), `created_at`, `updated_at` | Chat conversation history |
+
+#### [NEW] `backend/database/db.py`
+- Async SQLAlchemy engine with `asyncpg`
+- Auto-create tables on startup
+- Connection pooling
+
+#### [NEW] `backend/database/seed.py`
+Seed data:
+- 1 demo sales rep account (`rep@mediflow.ai` / `demo123`)
+- 15 sample HCPs (varied specialties: Cardiology, Oncology, Neurology, etc.)
+- 8 pharma products (realistic brand names, indications, key messages)
+- 5 sample past interactions (for history/analytics demo)
+- 3 pending follow-ups
+
+#### [NEW] `docker-compose.yml`
+```yaml
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mediflow
+      POSTGRES_USER: mediflow
+      POSTGRES_PASSWORD: mediflow123
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
+```
+
+---
+
+### Component 2: Authentication
+
+#### [NEW] `backend/auth/auth.py`
+- JWT token generation/validation using `python-jose`
+- Password hashing with `passlib[bcrypt]`
+- Token expiry: 24 hours
+- Dependency injection for protected routes
+
+#### [NEW] `backend/auth/routes.py`
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/auth/login` | Login → returns JWT |
+| `GET` | `/api/auth/me` | Get current user profile |
+
+---
+
+### Component 3: LangGraph Agent (6 Tools)
+
+#### [NEW] `backend/agent/graph.py`
+
+LangGraph `StateGraph` with enhanced state:
+
+```python
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+    current_hcp: Optional[dict]        # Remembered from lookup
+    current_interaction: Optional[dict] # Active interaction context
+    current_products: list[dict]        # Products in context
+    workflow_stage: str                 # Where we are in the flow
+    user_id: int                        # Authenticated user
+```
+
+**Graph flow:**
+```mermaid
+graph LR
+    A["__start__"] --> B["agent_node"]
+    B -->|tool_call| C["tool_node"]
+    C --> B
+    B -->|no tool_call| D["__end__"]
+```
+
+- **LLM**: `ChatGroq(model="gemma2-9b-it")` with all 6 tools bound
+- **Checkpointer**: `MemorySaver` with `thread_id` per user session
+- Agent remembers: current HCP, active interaction, products discussed, previous tool outputs
+
+#### [NEW] `backend/agent/prompts.py`
+
+System prompt establishing the agent as a pharmaceutical CRM assistant:
+- Knows pharma industry terminology
+- Understands compliance requirements (Sunshine Act, anti-kickback)
+- Guides reps through interaction logging
+- Proactively suggests follow-ups and next best actions
+- Returns structured confidence scores with every extraction
+
+#### [NEW] `backend/agent/tools.py`
+
+| # | Tool | Input | AI Logic | Output |
+|---|------|-------|----------|--------|
+| 1 | **`log_interaction`** | Free-text or structured data | LLM extracts: HCP name, products, topics, sentiment, follow-up → generates AI summary → runs compliance check → computes confidence score | Interaction record + confidence + entities |
+| 2 | **`edit_interaction`** | `interaction_id` + fields to update | Validates changes, logs to audit trail, re-runs compliance if content changed | Updated record |
+| 3 | **`lookup_hcp`** | Name, specialty, or institution query | Fuzzy search on `hcps` table using ILIKE | List of matching HCPs with tier/specialty |
+| 4 | **`next_best_action`** | `hcp_id` or HCP name | Analyzes: past interactions, HCP specialty, sentiment trends, product history, time since last visit → LLM generates prioritized recommendations | Recommended actions, suggested products, priority score (1-10), reasoning |
+| 5 | **`get_interaction_history`** | `hcp_id` or HCP name, optional date range | Queries interactions chronologically, computes engagement trends | Timeline of interactions with AI summaries |
+| 6 | **`check_compliance`** | Text content to check | LLM scans for: gift mentions, quid pro quo language, off-label promotion, improper inducements → flags violations with severity | Compliance status (clean/warning/violation), flags list, severity, recommendation |
+
+**Confidence scoring** is embedded in tools 1 and 6:
+```
+{
+  "confidence": 0.94,
+  "entities_found": {
+    "hcp": {"value": "Dr. Sarah Chen", "confidence": 0.98},
+    "product": {"value": "Cardiolex", "confidence": 0.95},
+    "sentiment": {"value": "positive", "confidence": 0.89},
+    "follow_up": {"value": "2024-02-15", "confidence": 0.91}
+  }
+}
+```
+
+---
+
+### Component 4: Backend API (FastAPI)
+
+#### [NEW] `backend/main.py`
+- FastAPI with lifespan (DB init + seed on startup)
+- CORS middleware
+- Include all routers
+
+#### [NEW] `backend/api/routes.py`
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `POST` | `/api/chat` | ✅ | Send message to LangGraph agent |
+| `GET` | `/api/interactions` | ✅ | List interactions (paginated, filterable) |
+| `POST` | `/api/interactions` | ✅ | Create interaction via form |
+| `PUT` | `/api/interactions/{id}` | ✅ | Update interaction |
+| `GET` | `/api/interactions/{id}` | ✅ | Get interaction detail |
+| `DELETE` | `/api/interactions/{id}` | ✅ | Delete interaction |
+| `GET` | `/api/hcps` | ✅ | List/search HCPs |
+| `GET` | `/api/hcps/{id}` | ✅ | HCP detail with interaction count |
+| `GET` | `/api/products` | ✅ | List products |
+| `GET` | `/api/dashboard` | ✅ | Dashboard aggregated stats |
+| `GET` | `/api/analytics` | ✅ | Analytics data (charts) |
+| `GET` | `/api/follow-ups` | ✅ | Pending follow-ups |
+| `PUT` | `/api/follow-ups/{id}` | ✅ | Mark follow-up complete |
+| `GET` | `/api/notifications` | ✅ | User notifications |
+| `PUT` | `/api/notifications/{id}/read` | ✅ | Mark notification read |
+| `GET` | `/api/search` | ✅ | Global search across entities |
+| `GET` | `/api/interactions/{id}/pdf` | ✅ | Export interaction as PDF |
+
+#### [NEW] `backend/api/schemas.py`
+Pydantic request/response models for all endpoints.
+
+---
+
+### Component 5: Frontend (React + Redux)
+
+#### Project Setup
+- Vite + React template
+- Dependencies: `@reduxjs/toolkit`, `react-redux`, `axios`, `react-router-dom`, `recharts` (charts), `react-hot-toast` (notifications), `jspdf` (PDF export), `framer-motion` (animations), `lucide-react` (icons)
+- Google Inter font via `@fontsource/inter`
+
+---
+
+#### [NEW] Redux Store — `frontend/src/store/`
+
+| Slice | State | Key Thunks/Actions |
+|-------|-------|-------------------|
+| `authSlice` | `user`, `token`, `isAuthenticated` | `login`, `logout`, `loadUser` |
+| `chatSlice` | `messages[]`, `isLoading`, `threadId`, `currentSession` | `sendMessage`, `addMessage`, `clearChat`, `newSession` |
+| `interactionSlice` | `interactions[]`, `current`, `isLoading`, `filters` | `fetchInteractions`, `createInteraction`, `updateInteraction`, `deleteInteraction` |
+| `hcpSlice` | `hcps[]`, `currentHcp`, `searchResults` | `fetchHCPs`, `searchHCPs`, `fetchHCPDetail` |
+| `dashboardSlice` | `stats`, `recentActivity`, `pendingFollowUps` | `fetchDashboard` |
+| `analyticsSlice` | `chartData`, `dateRange` | `fetchAnalytics` |
+| `notificationSlice` | `notifications[]`, `unreadCount` | `fetchNotifications`, `markRead` |
+| `uiSlice` | `activeMode`, `sidebarOpen`, `searchQuery`, `theme` | `toggleMode`, `toggleSidebar`, `setSearch` |
+
+---
+
+#### [NEW] Pages — `frontend/src/pages/`
+
+**`LoginPage.jsx`**
+- Clean login form with MediFlow AI branding
+- Email + password → JWT → redirect to Dashboard
+
+**`DashboardPage.jsx`**
+- Stat cards (animated counters):
+  - Today's Visits | Pending Follow-Ups | Total Interactions | Top HCP
+- Quick Actions: "Log New Interaction", "View Follow-Ups"
+- Recent Activity feed (last 5 interactions as mini-timeline)
+- Upcoming follow-ups list with priority badges
+
+**`LogInteractionPage.jsx`** — The core screen
+- **Mode Toggle**: Form ↔ Chat (animated switch)
+- **Form Mode**:
+  - Date picker, HCP dropdown (searchable with `lookup_hcp` autocomplete)
+  - Interaction type selector (pills: In-Person / Virtual / Phone / Email)
+  - Products discussed (multi-select chips)
+  - Key topics textarea
+  - Sentiment selector (visual: 😊 / 😐 / 😟)
+  - Follow-up date + actions
+  - Samples dropped
+  - Notes
+  - Submit → AI generates summary + compliance check → store
+- **Chat Mode**:
+  - Message bubbles (user = right, AI = left)
+  - Typing indicator animation
+  - Tool execution cards inline (e.g., "✅ Interaction logged — Confidence: 94%")
+  - Compliance warnings shown as alert banners
+  - **Voice input button** (uses browser `SpeechRecognition` API → sends transcript as text to agent)
+- **Sidebar panel**: Current HCP context card (if one is selected/mentioned)
+
+**`InteractionHistoryPage.jsx`**
+- **Rich vertical timeline** (not a table):
+  - Date markers (Today, Yesterday, This Week, etc.)
+  - Interaction cards on the timeline with: HCP name, type badge, sentiment emoji, AI summary preview, compliance status
+  - Click to expand → full detail modal
+  - Edit button → inline editing or opens form pre-filled
+- Filters: Date range, HCP, product, sentiment, type
+- Search bar
+
+**`AnalyticsPage.jsx`**
+- Charts (using Recharts):
+  - **Interactions per Week** (area chart)
+  - **Top Products Discussed** (horizontal bar chart)
+  - **Sentiment Distribution** (donut chart)
+  - **HCP Engagement Heatmap** (by day of week)
+  - **Follow-Up Completion Rate** (progress ring)
+- Date range picker
+
+---
+
+#### [NEW] Components — `frontend/src/components/`
+
+| Component | Purpose |
+|-----------|---------|
+| `Layout.jsx` | App shell: sidebar + header + content area |
+| `Sidebar.jsx` | Nav: Dashboard, Log Interaction, History, Analytics, HCPs |
+| `Header.jsx` | Top bar: global search, notifications bell (with badge), user avatar, logout |
+| `ChatWindow.jsx` | Message list + input + voice button + typing indicator |
+| `ChatMessage.jsx` | Single message bubble with tool result rendering |
+| `InteractionForm.jsx` | Structured form with all fields |
+| `ModeToggle.jsx` | Animated Form ↔ Chat switch |
+| `HCPCard.jsx` | HCP info card (name, specialty, tier, last visit) |
+| `InteractionCard.jsx` | Timeline interaction card with expandable detail |
+| `ConfidenceBadge.jsx` | Visual confidence indicator (color-coded %) |
+| `ComplianceAlert.jsx` | Warning/violation banner with severity |
+| `StatCard.jsx` | Dashboard metric card with animated counter |
+| `NotificationDropdown.jsx` | Bell dropdown with notification list |
+| `SearchModal.jsx` | Global search overlay (Cmd+K style) |
+| `PDFExportButton.jsx` | Generate + download interaction PDF |
+| `LoadingSkeleton.jsx` | Shimmer loading placeholders |
+| `EmptyState.jsx` | Illustrated empty states |
+| `ToolResultCard.jsx` | Renders agent tool outputs (log, compliance, NBA, etc.) |
+| `VoiceInput.jsx` | Microphone button with recording animation |
+| `SentimentBadge.jsx` | Emoji + color sentiment indicator |
+| `ProtectedRoute.jsx` | Route guard checking JWT |
+
+---
+
+#### Design System — `frontend/src/index.css`
+
+> **Design Philosophy**: Inspired by **Linear** (precision, keyboard-first), **Vercel** (minimalism, dark elegance), **Apple HIG** (clarity, depth, consistency), and **Notion** (flexible workspaces, content-first). Glassmorphism used sparingly — only on overlays and floating panels, never on primary content cards. The interface should feel like a premium SaaS product that could be shipped commercially, not a hackathon prototype.
+
+##### Anti-Patterns to Avoid
+- ❌ Generic Material UI / Bootstrap layouts
+- ❌ Heavy drop shadows everywhere
+- ❌ Overly rounded corners (max 12px on cards, 8px on buttons)
+- ❌ Neon / garish accent colors
+- ❌ Dense, cluttered dashboards with no breathing room
+- ❌ Placeholder icons or emoji as UI elements
+- ❌ Lorem ipsum or obviously fake data
+- ❌ Heavy glassmorphism on every surface
+
+##### Dual Theme System (Dark + Light)
+
+**Dark Theme (Default)** — Vercel/Linear inspired:
+```css
+[data-theme="dark"] {
+  --bg-base:          #09090B;     /* True dark, almost black — Vercel-style */
+  --bg-surface:       #0F0F12;     /* Elevated surface — sidebar, cards */
+  --bg-elevated:      #18181B;     /* Modals, dropdowns, popovers */
+  --bg-hover:         #1E1E22;     /* Subtle hover state */
+  --bg-active:        #27272A;     /* Active/selected state */
+
+  --border-subtle:    rgba(255, 255, 255, 0.06);   /* Barely visible borders */
+  --border-default:   rgba(255, 255, 255, 0.10);   /* Standard borders */
+  --border-strong:    rgba(255, 255, 255, 0.16);   /* Emphasized borders */
+
+  --text-primary:     #FAFAFA;     /* High contrast headings */
+  --text-secondary:   #A1A1AA;     /* Body text, descriptions */
+  --text-tertiary:    #71717A;     /* Muted labels, timestamps */
+  --text-placeholder: #52525B;     /* Input placeholders */
+
+  --accent:           #3B82F6;     /* Primary blue — actions, links */
+  --accent-hover:     #2563EB;     /* Blue hover */
+  --accent-subtle:    rgba(59, 130, 246, 0.12);  /* Blue tint backgrounds */
+  --accent-gradient:  linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);  /* Hero gradients only */
+
+  --success:          #22C55E;
+  --success-subtle:   rgba(34, 197, 94, 0.12);
+  --warning:          #EAB308;
+  --warning-subtle:   rgba(234, 179, 8, 0.12);
+  --danger:           #EF4444;
+  --danger-subtle:    rgba(239, 68, 68, 0.12);
+  --info:             #06B6D4;
+
+  --shadow-sm:        0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md:        0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg:        0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-glow:      0 0 0 1px var(--accent), 0 0 20px rgba(59, 130, 246, 0.15);
+}
+```
+
+**Light Theme** — Apple HIG / Notion inspired:
+```css
+[data-theme="light"] {
+  --bg-base:          #FFFFFF;
+  --bg-surface:       #FAFAFA;
+  --bg-elevated:      #FFFFFF;
+  --bg-hover:         #F4F4F5;
+  --bg-active:        #E4E4E7;
+
+  --border-subtle:    rgba(0, 0, 0, 0.04);
+  --border-default:   rgba(0, 0, 0, 0.08);
+  --border-strong:    rgba(0, 0, 0, 0.14);
+
+  --text-primary:     #09090B;
+  --text-secondary:   #52525B;
+  --text-tertiary:    #A1A1AA;
+  --text-placeholder: #D4D4D8;
+
+  --accent:           #2563EB;
+  --accent-hover:     #1D4ED8;
+  --accent-subtle:    rgba(37, 99, 235, 0.08);
+
+  --shadow-sm:        0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md:        0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg:        0 8px 24px rgba(0, 0, 0, 0.12);
+}
+```
+
+##### Typography Scale (Inter)
+
+| Token | Size | Weight | Line Height | Usage |
+|-------|------|--------|-------------|-------|
+| `--text-xs` | 11px | 400 | 16px | Timestamps, badges, metadata |
+| `--text-sm` | 13px | 400 | 20px | Secondary text, table cells, captions |
+| `--text-base` | 14px | 400 | 22px | Body text, form labels, nav items |
+| `--text-md` | 15px | 500 | 24px | Card titles, emphasized body |
+| `--text-lg` | 18px | 600 | 28px | Section headings |
+| `--text-xl` | 24px | 600 | 32px | Page titles |
+| `--text-2xl` | 32px | 700 | 40px | Dashboard hero numbers |
+| `--text-display` | 48px | 700 | 56px | Login page brand title |
+
+Key: Use **Inter** at weights 400 (regular), 500 (medium), 600 (semibold), 700 (bold). Enable font-feature-settings: `"cv02", "cv03", "cv04", "cv11"` for the distinctive Linear-style character variants.
+
+##### Spacing System (8px Grid)
+
+```
+--space-0:  0px
+--space-1:  4px      /* Tight inline spacing */
+--space-2:  8px      /* Default gap, padding-tight */
+--space-3:  12px     /* Input padding, small gaps */
+--space-4:  16px     /* Card padding, section gaps */
+--space-5:  20px     /* Medium content separation */
+--space-6:  24px     /* Large padding, page gutters */
+--space-8:  32px     /* Section separation */
+--space-10: 40px     /* Major section breaks */
+--space-12: 48px     /* Page-level vertical rhythm */
+--space-16: 64px     /* Hero sections */
+```
+
+Rule: **Generous whitespace everywhere**. When in doubt, add more space. Content should breathe.
+
+##### Border Radius
+
+```
+--radius-sm:   6px    /* Buttons, badges, inputs */
+--radius-md:   8px    /* Cards, dropdowns */
+--radius-lg:   12px   /* Modals, large cards */
+--radius-xl:   16px   /* Feature panels */
+--radius-full: 9999px /* Avatars, pills, toggles */
+```
+
+##### Component Design Patterns
+
+**Sidebar (Linear-style)**
+- Width: 240px, collapsible to 64px (icon-only)
+- Background: `--bg-surface` with `--border-subtle` right border
+- Nav items: 32px height, `--radius-sm`, subtle hover (`--bg-hover`), active has left accent bar (2px `--accent`)
+- Sections separated by muted labels (all-caps, `--text-xs`, `--text-tertiary`, letter-spacing: 0.05em)
+- Bottom: user avatar + name + compact theme toggle
+- No icons larger than 18px, use `lucide-react` with 1.5px stroke
+
+**Header (Vercel-style)**
+- Height: 52px, sticky, `--bg-base` with bottom `--border-subtle`
+- Breadcrumb navigation (not page title — breadcrumbs feel more app-like)
+- Right side: Global search trigger (shows `⌘K`), notification bell, user avatar
+- Clean, no background color changes, just border separation
+
+**Cards (Apple HIG)**
+- Background: `--bg-surface`
+- Border: 1px `--border-subtle` (NOT shadow-first — border-first like Linear)
+- Padding: 20px
+- Hover: border shifts to `--border-default`, translate-y: -1px, `--shadow-sm`
+- No heavy glassmorphism — save that for overlays only
+- Corner radius: `--radius-md`
+
+**Buttons**
+- Primary: `--accent` bg, white text, `--radius-sm`, height 36px, font-weight 500
+- Secondary: transparent bg, `--border-default` border, `--text-secondary`
+- Ghost: no border, no bg, `--text-secondary`, hover bg `--bg-hover`
+- Destructive: `--danger` bg
+- All: 0.15s ease transitions, slight scale(0.98) on active press
+- Icon buttons: 32x32px, `--radius-sm`
+
+**Inputs (Notion-style)**
+- Height: 36px, `--bg-base` background, 1px `--border-default` border
+- Focus: border → `--accent`, `--shadow-glow` (blue ring)
+- Placeholder: `--text-placeholder`
+- Clean, no floating labels — use labels above inputs with `--text-sm` `--text-secondary`
+
+**Modals / Command Palette (Linear Cmd+K)**
+- Center of screen, max-width 560px
+- `--bg-elevated` with `--border-default` border
+- Glassmorphism backdrop: `backdrop-filter: blur(8px)` on the overlay (NOT the modal itself)
+- Animated with framer-motion: fade overlay + scale(0.98→1.0) + opacity(0→1) modal
+- Search input at top, results below with keyboard navigation highlights
+
+**Toast Notifications (Vercel-style)**
+- Bottom-right, slide-up entry
+- Pill-shaped, `--bg-elevated`, `--border-default`
+- Auto-dismiss 4s, progress bar at bottom
+- Success = green left accent, Error = red, Info = blue
+
+**Tables / Lists**
+- No visible row borders — use alternating subtle backgrounds or hover highlights
+- Row height: 44px
+- Header: `--text-xs`, `--text-tertiary`, uppercase, letter-spacing
+- Hover: full row `--bg-hover`
+- Selected: `--accent-subtle` background
+
+**Chat Interface (AI Workspace)**
+- Messages area: clean, no bubbles with heavy backgrounds
+- User messages: right-aligned, `--accent-subtle` background, `--radius-lg`
+- AI messages: left-aligned, `--bg-surface` background, `--radius-lg`
+- AI typing indicator: three dots with staggered opacity pulse
+- Tool execution: collapsible card below AI message showing tool name, inputs, outputs, confidence badge
+- Voice button: circular, `--accent-gradient` when recording, pulsing ring animation
+- Input area: bottom-fixed, full-width textarea with send button, voice mic, attachment placeholder
+
+**Timeline (Interaction History)**
+- Vertical line: 2px `--border-subtle`, left-aligned
+- Nodes: 10px circles on the line, color-coded by interaction type
+- Cards: offset right, connected to node with a small horizontal line
+- Date separators: sticky, `--text-xs`, `--text-tertiary`, uppercase
+- Expandable detail: smooth height animation, no jarring reflows
+
+**Dashboard Stat Cards**
+- 4-column grid with generous gap (24px)
+- Each card: subtle border, icon top-left (muted), large number (`--text-2xl`, `--text-primary`), label below (`--text-sm`, `--text-secondary`)
+- Trend indicator: small arrow + percentage, green/red
+- Animated counter: numbers count up from 0 on mount using framer-motion
+
+**Charts (Analytics)**
+- Use Recharts with custom theme matching our palette
+- Grid lines: `--border-subtle`
+- Tooltips: `--bg-elevated`, `--border-default`, small shadow
+- Colors: use our accent + muted variations, never use default Recharts colors
+- Smooth curve interpolation, no jagged lines
+- Animate on mount: draw-in effect
+
+##### Animation Specs (Framer Motion)
+
+| Animation | Duration | Easing | Usage |
+|-----------|----------|--------|-------|
+| Page transition | 200ms | `ease-out` | `opacity: 0→1`, `y: 8→0` |
+| Sidebar collapse | 200ms | `ease-in-out` | Width 240→64px |
+| Card hover | 150ms | `ease-out` | `translateY: -1px`, border color shift |
+| Button press | 100ms | `ease-in` | `scale: 0.98` |
+| Modal enter | 200ms | `[0.16, 1, 0.3, 1]` (spring-like) | `scale: 0.98→1`, `opacity: 0→1` |
+| Modal exit | 150ms | `ease-in` | Reverse of enter |
+| Toast enter | 300ms | `[0.21, 1.02, 0.73, 1]` | `translateY: 16→0`, `opacity: 0→1` |
+| Chat message | 250ms | `ease-out` | `translateY: 8→0`, `opacity: 0→1` |
+| Counter (stats) | 800ms | `ease-out` | Number counts from 0 to value |
+| Skeleton shimmer | 1.5s | `linear`, infinite | Gradient sweep left to right |
+| Voice pulse | 1.2s | `ease-in-out`, infinite | Scale 1→1.3→1, opacity ring |
+| Search modal | 150ms | `ease-out` | `scale: 0.95→1`, `opacity: 0→1` |
+| Dropdown menu | 120ms | `ease-out` | `scale: 0.95→1`, `opacity: 0→1`, transform-origin top |
+| Timeline node | 300ms | `ease-out` (staggered 50ms per node) | `opacity: 0→1`, `x: -8→0` |
+
+Key principle: **Animations must be fast and purposeful**. Nothing over 300ms for UI interactions. Page transitions max 200ms. Users should never feel like they're waiting for an animation.
+
+##### Page-by-Page Design Notes
+
+**Login Page**
+- Full-screen, centered card (max-width 400px)
+- Subtle gradient mesh background (animated, very slow drift)
+- "MediFlow AI" brand in `--text-display` with accent gradient text
+- Tagline: "AI-powered CRM for life sciences" in `--text-secondary`
+- Minimal form: email + password + sign in button
+- No distractions, no sidebars, no navigation
+
+**Dashboard**
+- Clean grid: 4 stat cards top, recent activity below-left (60%), follow-ups below-right (40%)
+- Stat cards: Today's Visits, Pending Follow-Ups, This Week's Interactions, Avg Sentiment Score
+- Recent activity: vertical mini-timeline (last 5 items, compact)
+- Follow-ups: list with priority pills (High=red, Medium=yellow, Low=gray)
+- Quick action buttons: "Log Interaction" (primary), "View All History" (secondary)
+- Greeting: "Good afternoon, [Name]" with date below
+
+**Log Interaction**
+- Mode toggle at top: two-segment control (Form | AI Chat), not tabs
+- Form mode: two-column layout on desktop, single column on mobile
+  - Left column: HCP selector, date, interaction type, products
+  - Right column: Topics, sentiment, notes, follow-up
+  - Bottom: full-width submit bar with compliance pre-check
+- Chat mode: full-height chat window with context panel on right
+  - Context panel (280px): shows current HCP card, extracted entities, confidence meters, compliance status — all updating live as the conversation progresses
+  - If no HCP selected yet, context panel shows "Start by mentioning a doctor..."
+
+**Interaction History**
+- Top: filter bar with date range, HCP filter, product filter, sentiment filter, type filter — all as compact dropdowns
+- Below: rich vertical timeline
+- Empty state: illustrated (not just text), "No interactions yet. Start by logging your first visit."
+
+**Analytics**
+- Date range picker at top (preset buttons: 7d, 30d, 90d, Custom)
+- 2×2 chart grid: Interactions/Week (area), Products Discussed (horizontal bar), Sentiment Distribution (donut), Follow-Up Completion (progress ring)
+- Below charts: Top HCPs table (engagement score, last visit, sentiment trend)
+
+---
+
+### Component 6: Voice Logging
+
+#### In `frontend/src/components/VoiceInput.jsx`
+- Uses browser `webkitSpeechRecognition` / `SpeechRecognition` API
+- Microphone button with recording pulse animation
+- Real-time transcript display
+- On stop → sends transcript text to the chat agent (same `/api/chat` endpoint)
+- Graceful fallback: if browser doesn't support it, button is hidden
+
+No backend changes needed — voice is converted to text client-side, then processed by the same LangGraph agent.
+
+---
+
+### Component 7: PDF Export
+
+#### In `backend/api/routes.py` — `GET /api/interactions/{id}/pdf`
+- Uses `reportlab` or `fpdf2` to generate a clean PDF
+- Contents: Interaction summary, HCP details, products discussed, AI summary, sentiment, compliance status, follow-up actions, timeline
+- Returns PDF as binary response with `Content-Disposition: attachment`
+
+Alternative: Client-side PDF with `jspdf` + `html2canvas` (simpler, no backend dependency). **I'll use client-side approach** to keep backend focused.
+
+---
+
+### Component 8: Notification System
+
+#### In `backend/api/routes.py`
+- On interaction log → auto-create follow-up notification if follow_up_date is set
+- On app load → check for overdue follow-ups → create overdue notifications
+- Notifications surfaced via `GET /api/notifications`
+
+#### In frontend
+- Header bell icon with unread count badge
+- Dropdown showing recent notifications
+- Click → navigate to relevant interaction/follow-up
+
+---
+
+### Component 9: Global Search
+
+#### `GET /api/search?q=<query>`
+- Searches across: HCPs (name, specialty, institution), Interactions (notes, AI summary), Products (brand name, therapeutic area)
+- Returns categorized results: `{ hcps: [...], interactions: [...], products: [...] }`
+
+#### In frontend — `SearchModal.jsx`
+- Opens with Cmd+K / Ctrl+K shortcut
+- Debounced search input
+- Results grouped by category with icons
+- Click result → navigate to detail page
+
+---
+
+## Project File Structure
+
+```
+c:\interview\
+├── docker-compose.yml
+├── README.md
+│
+├── backend/
+│   ├── main.py
+│   ├── requirements.txt
+│   ├── .env.example
+│   ├── auth/
+│   │   ├── __init__.py
+│   │   ├── auth.py              # JWT logic, password hashing
+│   │   └── routes.py            # Login endpoint
+│   ├── database/
+│   │   ├── __init__.py
+│   │   ├── db.py                # Async engine, session
+│   │   ├── models.py            # 8 SQLAlchemy models
+│   │   └── seed.py              # Demo data
+│   ├── agent/
+│   │   ├── __init__.py
+│   │   ├── graph.py             # LangGraph StateGraph
+│   │   ├── tools.py             # 6 agent tools
+│   │   └── prompts.py           # System prompts
+│   └── api/
+│       ├── __init__.py
+│       ├── routes.py            # All API endpoints
+│       └── schemas.py           # Pydantic models
+│
+├── frontend/
+│   ├── package.json
+│   ├── vite.config.js
+│   ├── index.html
+│   └── src/
+│       ├── main.jsx
+│       ├── App.jsx
+│       ├── index.css
+│       ├── api/
+│       │   └── axios.js         # Axios instance with JWT interceptor
+│       ├── store/
+│       │   ├── store.js
+│       │   ├── authSlice.js
+│       │   ├── chatSlice.js
+│       │   ├── interactionSlice.js
+│       │   ├── hcpSlice.js
+│       │   ├── dashboardSlice.js
+│       │   ├── analyticsSlice.js
+│       │   ├── notificationSlice.js
+│       │   └── uiSlice.js
+│       ├── pages/
+│       │   ├── LoginPage.jsx
+│       │   ├── DashboardPage.jsx
+│       │   ├── LogInteractionPage.jsx
+│       │   ├── InteractionHistoryPage.jsx
+│       │   └── AnalyticsPage.jsx
+│       └── components/
+│           ├── Layout.jsx
+│           ├── Sidebar.jsx
+│           ├── Header.jsx
+│           ├── ProtectedRoute.jsx
+│           ├── ChatWindow.jsx
+│           ├── ChatMessage.jsx
+│           ├── ToolResultCard.jsx
+│           ├── InteractionForm.jsx
+│           ├── ModeToggle.jsx
+│           ├── VoiceInput.jsx
+│           ├── HCPCard.jsx
+│           ├── InteractionCard.jsx
+│           ├── ConfidenceBadge.jsx
+│           ├── ComplianceAlert.jsx
+│           ├── SentimentBadge.jsx
+│           ├── StatCard.jsx
+│           ├── NotificationDropdown.jsx
+│           ├── SearchModal.jsx
+│           ├── PDFExportButton.jsx
+│           ├── LoadingSkeleton.jsx
+│           └── EmptyState.jsx
+```
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> **Groq API Key**: You need to create one at [console.groq.com](https://console.groq.com). The app reads `GROQ_API_KEY` from `.env`. Do you have one ready?
+
+> [!NOTE]
+> **PostgreSQL**: The plan uses Docker for PostgreSQL. If you don't have Docker, I can also provide instructions for local PostgreSQL installation. The `docker-compose up -d` approach is zero-config though.
+
+---
+
+## Verification Plan
+
+### Tool Demos (for video)
+
+| # | Prompt to Agent | Expected Tool | Expected Output |
+|---|-----------------|---------------|-----------------|
+| 1 | *"Look up Dr. Sarah Chen"* | `lookup_hcp` | HCP card with specialty, institution, tier |
+| 2 | *"I met Dr. Chen today at Metro Hospital. We discussed Cardiolex for resistant hypertension. She was very receptive and wants clinical trial data. Dropped 5 samples."* | `log_interaction` | ✅ Logged + AI summary + confidence 92% + entities extracted |
+| 3 | *"Show me my interaction history with Dr. Chen"* | `get_interaction_history` | Timeline of interactions with summaries |
+| 4 | *"Update my last interaction — change the sentiment to neutral and add a note about scheduling a follow-up next Thursday"* | `edit_interaction` | ✅ Updated + audit log entry |
+| 5 | *"What should I focus on in my next visit with Dr. Chen?"* | `next_best_action` | Recommendations: bring clinical trial data, discuss Cardiolex efficacy, priority 8/10 |
+| 6 | *"The doctor agreed to prescribe our medicine exclusively if we sponsor her conference travel"* | `check_compliance` | ⚠️ VIOLATION: Potential anti-kickback / quid pro quo detected, severity HIGH |
+
+### Full Flow
+1. Login → Dashboard loads with stats
+2. Navigate to Log Interaction → switch between Form/Chat modes
+3. Log via form → appears in timeline
+4. Log via chat → watch AI extraction + confidence
+5. Use voice input → transcript sent to chat
+6. View Interaction History → rich timeline
+7. Edit an interaction → see audit trail
+8. View Analytics → charts render
+9. Global search (Cmd+K) → find across entities
+10. Export interaction as PDF
+
+### Build Verification
+```bash
+# Backend
+cd backend && pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+
+# Frontend
+cd frontend && npm install && npm run dev
+
+# PostgreSQL
+docker-compose up -d
+```
+
+---
+
+## Execution Order
+
+1. Docker + PostgreSQL setup
+2. Backend database models + seed data
+3. Authentication (JWT)
+4. LangGraph agent + 6 tools + prompts
+5. FastAPI routes (all endpoints)
+6. Frontend scaffolding (Vite + React + Redux + Router)
+7. Design system (index.css)
+8. Login page
+9. Layout (Sidebar + Header + Protected Routes)
+10. Dashboard page
+11. Log Interaction page (Form mode)
+12. Log Interaction page (Chat mode + Voice)
+13. Interaction History page (Timeline)
+14. Analytics page (Charts)
+15. Global Search + Notifications
+16. PDF Export
+17. Integration testing
+18. README with architecture diagram + screenshots
