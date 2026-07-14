@@ -2,7 +2,7 @@
 
 AI-first Healthcare CRM powered by LangGraph, Groq, and FastAPI, designed specifically for pharmaceutical field representatives interacting with Healthcare Professionals (HCPs).
 
-![MediFlow AI Demo](docs/demo.gif)
+![MediFlow AI Demo](docs/demo_v2.gif)
 
 ## 🌟 Features
 
