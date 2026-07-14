@@ -34,55 +34,42 @@ async def _get_session() -> AsyncSession:
 @tool
 async def log_interaction(
     hcp_name: str,
-    interaction_date: Optional[str] = None,
-    interaction_type: Optional[str] = "in-person",
     products_discussed: Optional[list[str]] = None,
     key_topics: Optional[list[str]] = None,
     sentiment: Optional[str] = "neutral",
-    sentiment_score: Optional[float] = 0.5,
-    follow_up_date: Optional[str] = None,
-    follow_up_actions: Optional[str] = None,
     ai_summary: Optional[str] = None,
     ai_executive_summary: Optional[dict] = None,
     ai_confidence: Optional[float] = None,
-    entities_extracted: Optional[dict] = None,
-    compliance_flags: Optional[dict] = None,
     strategic_insight: Optional[str] = None,
     notes: Optional[str] = None,
-    samples_dropped: Optional[list[str]] = None,
-    duration_minutes: Optional[int] = None,
-    location: Optional[str] = None,
-    ai_suggested_follow_ups: Optional[list[str]] = None,
     user_id: int = 1,
 ) -> str:
-    """Log a new interaction with a Healthcare Professional (HCP).
-    
-    Use this tool when the user describes a meeting, call, or any interaction
-    with a doctor. Extract all relevant information from the conversation.
-    
+    """Log a new HCP interaction. Extract info from the user's message.
+
     Args:
-        hcp_name: Name of the healthcare professional (e.g., "Dr. Sarah Chen")
-        interaction_date: Date of interaction in YYYY-MM-DD format. Defaults to today.
-        interaction_type: Type of interaction: "in-person", "virtual", "phone", "email"
-        products_discussed: List of pharmaceutical products discussed
-        key_topics: Main topics covered during the interaction
-        sentiment: Overall sentiment: "positive", "neutral", "negative"
-        sentiment_score: Confidence score for sentiment (0.0-1.0)
-        follow_up_date: Planned follow-up date in YYYY-MM-DD format
-        follow_up_actions: Description of planned follow-up actions
-        ai_summary: AI-generated summary of the interaction
-        ai_executive_summary: Structured summary with key_outcomes, next_actions, risks
-        ai_confidence: Overall AI confidence score (0.0-1.0)
-        entities_extracted: Dict of extracted entities with confidence scores
-        compliance_flags: Compliance check results
-        strategic_insight: AI strategic recommendation
+        hcp_name: HCP name
+        products_discussed: Products discussed
+        key_topics: Topics covered
+        sentiment: positive, neutral, or negative
+        ai_summary: Brief summary
+        ai_executive_summary: Dict with key_outcomes, next_actions, risks
+        ai_confidence: Confidence 0.0-1.0
+        strategic_insight: Recommendation
         notes: Additional notes
-        samples_dropped: List of samples provided
-        duration_minutes: Duration of the meeting in minutes
-        location: Location of the interaction
-        ai_suggested_follow_ups: AI-generated follow-up action suggestions
-        user_id: ID of the sales representative
+        user_id: Rep ID
     """
+    # Set defaults for removed parameters
+    interaction_date = None
+    interaction_type = "in-person"
+    sentiment_score = 0.5 if sentiment == "neutral" else (0.8 if sentiment == "positive" else 0.3)
+    follow_up_date = None
+    follow_up_actions = None
+    entities_extracted = None
+    compliance_flags = None
+    samples_dropped = None
+    duration_minutes = None
+    location = None
+    ai_suggested_follow_ups = None
     async with await _get_session() as session:
         try:
             # Find HCP
@@ -213,20 +200,17 @@ async def edit_interaction(
     user_id: int = 1,
 ) -> str:
     """Edit an existing interaction record.
-    
-    Use this tool when the user wants to modify a previously logged interaction.
-    Only update the fields that the user explicitly wants to change.
-    
+
     Args:
-        interaction_id: ID of the interaction to edit
-        sentiment: New sentiment value: "positive", "neutral", "negative"
-        key_topics: Updated key topics
+        interaction_id: Interaction ID to edit
+        sentiment: positive, neutral, or negative
+        key_topics: Updated topics
         notes: Updated notes
-        follow_up_date: New follow-up date in YYYY-MM-DD format
-        follow_up_actions: Updated follow-up actions
-        products_discussed: Updated list of products
-        ai_summary: Updated AI summary
-        user_id: ID of the sales representative
+        follow_up_date: YYYY-MM-DD
+        follow_up_actions: Updated actions
+        products_discussed: Updated products
+        ai_summary: Updated summary
+        user_id: Rep ID
     """
     async with await _get_session() as session:
         try:
@@ -315,13 +299,10 @@ async def edit_interaction(
 async def smart_hcp_search(
     query: str,
 ) -> str:
-    """Search for Healthcare Professionals (HCPs) by name, specialty, institution, or city.
-    
-    Use this tool when the user asks to look up or find a doctor.
-    Returns matching HCPs with their relationship health score and engagement data.
-    
+    """Search HCPs by name, specialty, institution, or city.
+
     Args:
-        query: Search query — can be a name, specialty, institution, or city
+        query: Search term
     """
     async with await _get_session() as session:
         try:
@@ -389,14 +370,11 @@ async def interaction_timeline(
     hcp_name: str,
     limit: int = 10,
 ) -> str:
-    """View the interaction history timeline for a specific HCP.
-    
-    Use this tool when the user wants to see past interactions with a doctor,
-    review history, or understand the engagement trend.
-    
+    """View interaction history for an HCP.
+
     Args:
-        hcp_name: Name of the HCP to look up history for
-        limit: Maximum number of interactions to return (default 10)
+        hcp_name: HCP name
+        limit: Max results (default 10)
     """
     async with await _get_session() as session:
         try:
@@ -502,21 +480,15 @@ async def next_best_action(
     suggested_products: Optional[list[str]] = None,
     meeting_prep: Optional[dict] = None,
 ) -> str:
-    """Generate Next Best Action recommendations for a specific HCP.
-    
-    Analyzes past interactions, sentiment trends, product history, follow-up status,
-    and relationship score to provide prioritized, intelligent recommendations.
-    
-    Use this tool when the user asks what to do next with a doctor, wants
-    recommendations, or asks about priorities.
-    
+    """Get next best action recommendations for an HCP.
+
     Args:
-        hcp_name: Name of the HCP to generate recommendations for
-        opportunity_score: AI-assessed opportunity score 0-100
-        reasoning: List of reasons supporting the opportunity score
-        recommended_actions: List of recommended next actions
-        suggested_products: List of products to discuss
-        meeting_prep: Meeting preparation data including talking points and expected questions
+        hcp_name: HCP name
+        opportunity_score: Score 0-100
+        reasoning: Reasons for score
+        recommended_actions: Suggested actions
+        suggested_products: Products to discuss
+        meeting_prep: Prep data
     """
     async with await _get_session() as session:
         try:
@@ -606,27 +578,14 @@ async def compliance_guardian(
     severity: Optional[str] = "none",
     recommendation: Optional[str] = None,
 ) -> str:
-    """Check text content for potential compliance violations in pharmaceutical sales.
-    
-    Scans for:
-    - Gift mentions or inducements
-    - Quid pro quo language
-    - Off-label promotion
-    - Improper financial incentives
-    - Sunshine Act violations
-    - Anti-kickback statute violations
-    
-    Use this tool when:
-    - A user logs an interaction and the content seems potentially problematic
-    - A user explicitly asks to check compliance
-    - Suspicious language is detected in conversation
-    
+    """Check text for pharma compliance violations.
+
     Args:
-        text: The text content to check for compliance issues
-        status: Compliance status: "clean", "warning", "violation"
-        flags: List of specific compliance flags identified
-        severity: Severity level: "none", "low", "medium", "high", "critical"
-        recommendation: Recommended action to address any issues
+        text: Text to check
+        status: clean, warning, or violation
+        flags: Compliance flags
+        severity: none, low, medium, high, critical
+        recommendation: Suggested action
     """
     return json.dumps({
         "success": True,

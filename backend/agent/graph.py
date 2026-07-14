@@ -57,7 +57,7 @@ def get_llm():
     llm = ChatGroq(
         model="llama-3.1-8b-instant",
         temperature=0.3,
-        max_tokens=4096,
+        max_tokens=2048,
         api_key=os.getenv("GROQ_API_KEY"),
     )
     return llm.bind_tools(ALL_TOOLS)
