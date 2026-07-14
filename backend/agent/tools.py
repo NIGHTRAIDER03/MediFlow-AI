@@ -37,7 +37,7 @@ async def log_interaction(
     interaction_date: Optional[str] = None,
     interaction_type: Optional[str] = "in-person",
     products_discussed: Optional[list[str]] = None,
-    key_topics: Optional[str] = None,
+    key_topics: Optional[list[str]] = None,
     sentiment: Optional[str] = "neutral",
     sentiment_score: Optional[float] = 0.5,
     follow_up_date: Optional[str] = None,
@@ -125,7 +125,7 @@ async def log_interaction(
                 interaction_date=i_date,
                 interaction_type=i_type,
                 products_discussed=products_discussed or [],
-                key_topics=key_topics,
+                key_topics=", ".join(key_topics) if isinstance(key_topics, list) else str(key_topics) if key_topics else None,
                 sentiment=sent,
                 sentiment_score=sentiment_score or 0.5,
                 follow_up_date=f_date,
@@ -204,7 +204,7 @@ async def log_interaction(
 async def edit_interaction(
     interaction_id: int,
     sentiment: Optional[str] = None,
-    key_topics: Optional[str] = None,
+    key_topics: Optional[list[str]] = None,
     notes: Optional[str] = None,
     follow_up_date: Optional[str] = None,
     follow_up_actions: Optional[str] = None,
@@ -249,9 +249,10 @@ async def edit_interaction(
                     new_values["sentiment"] = sentiment
 
             if key_topics is not None:
+                new_key_topics = ", ".join(key_topics) if isinstance(key_topics, list) else str(key_topics)
                 old_values["key_topics"] = interaction.key_topics
-                interaction.key_topics = key_topics
-                new_values["key_topics"] = key_topics
+                interaction.key_topics = new_key_topics
+                new_values["key_topics"] = new_key_topics
 
             if notes is not None:
                 old_values["notes"] = interaction.notes
