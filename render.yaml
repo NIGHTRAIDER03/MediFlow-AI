@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: mediflow-ai-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        value: mediflow-secret-key-2024
+      - key: ALLOWED_ORIGINS
+        sync: false

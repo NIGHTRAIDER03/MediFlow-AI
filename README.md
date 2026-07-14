@@ -26,7 +26,7 @@ AI-first Healthcare CRM powered by LangGraph, Groq, and FastAPI, designed specif
 ### Backend
 - **FastAPI** (Async API framework)
 - **LangGraph** (Stateful Agent Workflow)
-- **Groq** (LLM Provider - `gemma2-9b-it`)
+- **Groq** (LLM Provider - `llama-3.1-8b-instant`)
 - **PostgreSQL** (Relational Database)
 - **SQLAlchemy** (Async ORM)
 
@@ -82,21 +82,20 @@ c:\interview\
 
 ## 🚀 Installation & Setup
 
-You do not need Node.js or Python installed locally. The entire application is containerized using Docker.
+### Option 1: Docker (Local Development)
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/NIGHTRAIDER03/CRM.git
-   cd CRM
+   git clone https://github.com/NIGHTRAIDER03/MediFlow-AI.git
+   cd MediFlow-AI
    ```
 
 2. Configure Environment Variables:
-   Open the `.env` file at the root of the project and add your Groq API key:
    ```env
    GROQ_API_KEY=your_groq_api_key_here
    ```
 
-3. Build and run the containers:
+3. Build and run:
    ```bash
    docker-compose up --build -d
    ```
@@ -105,7 +104,29 @@ You do not need Node.js or Python installed locally. The entire application is c
    - Frontend: `http://localhost:5173`
    - Backend API Docs: `http://localhost:8000/docs`
 
-*Note: The database is automatically seeded with demo data on startup. You can log in using `demo` / `demo123`.*
+### Option 2: Cloud Deployment
+
+| Service | Platform |
+|---------|----------|
+| Frontend | **Vercel** |
+| Backend | **Render** |
+| Database | **Supabase PostgreSQL** |
+| AI | **Groq** |
+
+**Backend Environment Variables (Render):**
+| Variable | Value |
+|----------|-------|
+| `DATABASE_URL` | Supabase PostgreSQL connection string |
+| `GROQ_API_KEY` | Your Groq API key |
+| `JWT_SECRET` | `mediflow-secret-key-2024` |
+| `ALLOWED_ORIGINS` | Your Vercel frontend URL |
+
+**Frontend Environment Variables (Vercel):**
+| Variable | Value |
+|----------|-------|
+| `VITE_API_URL` | Your Render backend URL |
+
+*Login credentials: `demo` / `demo123`*
 
 ## 🧠 LangGraph Flow
 
@@ -113,24 +134,34 @@ The AI Agent operates on a cyclic `StateGraph` that manages the conversation and
 
 1. **User Input**: The user submits unstructured notes or a command via the UI.
 2. **Intent Detection (LLM)**: The LLM analyzes the input and decides which tool to call based on its system prompt.
-3. **Tool Execution**: The graph transitions to a specific tool node (e.g., `log_interaction`, `schedule_followup`, `generate_meeting_brief`).
+3. **Tool Execution**: The graph transitions to a specific tool node (e.g., `log_interaction`, `next_best_action`, `compliance_guardian`).
 4. **State Update**: The tool executes (interacting with the PostgreSQL database) and updates the global graph state.
 5. **Response Generation**: The LLM formats the tool output into a user-friendly executive summary and streams it back to the frontend.
 
-## 🧰 AI Tools (Mandatory Requirements)
+## 🧰 AI Tools
 
 The agent is equipped with 6 specific tools to handle CRM operations:
-1. `smart_hcp_search`: Resolves physician names and extracts context.
-2. `log_interaction`: Extracts structured JSON (sentiment, products, summary) from raw notes.
-3. `edit_interaction`: Allows retroactive modifications to logged visits.
-4. `schedule_followup`: Identifies and logs actionable next steps.
-5. `interaction_timeline`: Retrieves historical context for a specific HCP.
-6. `generate_meeting_brief`: Synthesizes past data into a preparation brief for upcoming visits.
+1. `log_interaction`: Extracts structured JSON (sentiment, products, summary) from raw notes.
+2. `edit_interaction`: Allows retroactive modifications to logged visits.
+3. `smart_hcp_search`: Resolves physician names and extracts context.
+4. `interaction_timeline`: Retrieves historical context for a specific HCP.
+5. `next_best_action`: Generates intelligent, context-aware follow-up recommendations.
+6. `compliance_guardian`: Scans text for compliance violations (gifts, off-label, kickbacks).
 
 ## 📸 Screenshots
 
-*(To be added: Please place screenshots in `docs/screenshots/`)*
-- `dashboard.png`: Main analytics overview.
-- `copilot.png`: The AI Log Interaction workspace.
-- `timeline.png`: Historical interaction timeline.
-- `brief.png`: AI-Generated Meeting Brief.
+| Dashboard | AI Copilot |
+|-----------|------------|
+| ![Dashboard](docs/screenshots/dashboard.png) | ![AI Copilot](docs/screenshots/copilot.png) |
+
+| Timeline | Analytics |
+|----------|-----------|
+| ![Timeline](docs/screenshots/timeline.png) | ![Analytics](docs/screenshots/brief.png) |
+
+## 🔮 Future Improvements
+
+- Real-time streaming AI responses (SSE)
+- Multi-tenant territory management
+- Email/calendar integration
+- Mobile-responsive PWA
+- RAG-powered drug interaction database
