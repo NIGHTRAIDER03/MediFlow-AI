@@ -17,7 +17,7 @@ class ChatResponse(BaseModel):
     tool_calls: list[dict] = []
     tool_results: list[dict] = []
     elapsed_time: float = 0.0
-    model: str = "gemma2-9b-it"
+    model: str = "llama3-8b-8192"
 
 
 # ── Interactions ──

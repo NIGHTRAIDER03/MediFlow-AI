@@ -55,7 +55,7 @@ ALL_TOOLS = [
 def get_llm():
     """Initialize Groq LLM with tools bound."""
     llm = ChatGroq(
-        model="gemma2-9b-it",
+        model="llama3-8b-8192",
         temperature=0.3,
         max_tokens=4096,
         api_key=os.getenv("GROQ_API_KEY"),
@@ -207,5 +207,5 @@ async def invoke_agent(message: str, thread_id: str, user_id: int = 1) -> dict:
         ],
         "tool_results": tool_results,
         "elapsed_time": elapsed,
-        "model": "gemma2-9b-it",
+        "model": "llama3-8b-8192",
     }
