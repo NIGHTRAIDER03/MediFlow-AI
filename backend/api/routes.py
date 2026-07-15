@@ -39,12 +39,17 @@ async def chat(
 ):
     """Send a message to the MediFlow AI copilot."""
     thread_id = request.thread_id or str(uuid.uuid4())
-    result = await invoke_agent(
-        message=request.message,
-        thread_id=thread_id,
-        user_id=current_user.id,
-    )
-    return ChatResponse(**result)
+    try:
+        result = await invoke_agent(
+            message=request.message,
+            thread_id=thread_id,
+            user_id=current_user.id,
+        )
+        return ChatResponse(**result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"AI Error: {str(e)}")
 
 
 # ═══════════════════════════════════════════════════

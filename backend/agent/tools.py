@@ -42,7 +42,7 @@ async def log_interaction(
     ai_confidence: Optional[float] = None,
     strategic_insight: Optional[str] = None,
     notes: Optional[str] = None,
-    **kwargs
+    user_id: Optional[int] = None
 ) -> str:
     """Log a new HCP interaction. Extract info from the user's message.
 
@@ -197,7 +197,7 @@ async def edit_interaction(
     follow_up_actions: Optional[str] = None,
     products_discussed: Optional[list[str]] = None,
     ai_summary: Optional[str] = None,
-    **kwargs
+    user_id: Optional[int] = None
 ) -> str:
     """Edit an existing interaction record.
 
