@@ -60,7 +60,7 @@ def get_llm():
         max_tokens=2048,
         api_key=os.getenv("GROQ_API_KEY"),
     )
-    return llm.bind_tools(ALL_TOOLS)
+    return llm.bind_tools(ALL_TOOLS, parallel_tool_calls=False)
 
 
 # ── Graph Nodes ──

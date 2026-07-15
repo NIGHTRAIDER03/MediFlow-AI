@@ -33,7 +33,7 @@ async def _get_session() -> AsyncSession:
 
 @tool
 async def log_interaction(
-    hcp_name: str,
+    hcp_name: Optional[str] = None,
     products_discussed: Optional[list[str]] = None,
     key_topics: Optional[list[str]] = None,
     sentiment: Optional[str] = "neutral",
@@ -72,6 +72,11 @@ async def log_interaction(
     ai_suggested_follow_ups = None
     async with await _get_session() as session:
         try:
+            if not hcp_name:
+                return json.dumps({
+                    "success": False,
+                    "error": "hcp_name is required to log an interaction. Please provide the HCP's name."
+                })
             # Find HCP
             result = await session.execute(
                 select(HCP).where(HCP.name.ilike(f"%{hcp_name}%"))
@@ -189,7 +194,7 @@ async def log_interaction(
 
 @tool
 async def edit_interaction(
-    interaction_id: int,
+    interaction_id: Optional[int] = None,
     sentiment: Optional[str] = None,
     key_topics: Optional[list[str]] = None,
     notes: Optional[str] = None,
@@ -214,6 +219,8 @@ async def edit_interaction(
     user_id = 1
     async with await _get_session() as session:
         try:
+            if not interaction_id:
+                return json.dumps({"success": False, "error": "interaction_id is required. You must specify which interaction you want to edit."})
             result = await session.execute(
                 select(Interaction).where(Interaction.id == interaction_id)
             )
