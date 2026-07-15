@@ -50,8 +50,15 @@ export default function AskMediFlow() {
       const response = await api.post('/chat', { message: query, thread_id: threadId })
       setResults(response.data)
     } catch (error) {
-      console.error(error)
-      setResults({ error: "Failed to get an answer. Please try again." })
+      let errMsg = "Failed to get an answer. Please try again.";
+      if (error.response && error.response.data && error.response.data.detail) {
+        errMsg = typeof error.response.data.detail === 'string' 
+          ? error.response.data.detail 
+          : JSON.stringify(error.response.data.detail);
+      } else if (error.message) {
+        errMsg = error.message;
+      }
+      setResults({ error: `Error: ${errMsg}` })
     } finally {
       setIsSearching(false)
     }
