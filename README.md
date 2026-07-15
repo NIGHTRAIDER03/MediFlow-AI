@@ -1,5 +1,7 @@
 # MediFlow AI
 
+**[🚀 Try the Live Demo](https://mediflow-ai.vercel.app/)** | **Login:** `demo` / `demo123` *(Note: Backend may take ~30s to wake up on first load)*
+
 AI-first Healthcare CRM powered by LangGraph, Groq, and FastAPI, designed specifically for pharmaceutical field representatives interacting with Healthcare Professionals (HCPs).
 
 ![MediFlow AI Demo](docs/demo_v5.gif)
