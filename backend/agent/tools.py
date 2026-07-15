@@ -42,7 +42,6 @@ async def log_interaction(
     ai_confidence: Optional[float] = None,
     strategic_insight: Optional[str] = None,
     notes: Optional[str] = None,
-    user_id: int = 1,
 ) -> str:
     """Log a new HCP interaction. Extract info from the user's message.
 
@@ -56,8 +55,8 @@ async def log_interaction(
         ai_confidence: Confidence 0.0-1.0
         strategic_insight: Recommendation
         notes: Additional notes
-        user_id: Rep ID
     """
+    user_id = 1
     # Set defaults for removed parameters
     interaction_date = None
     interaction_type = "in-person"
@@ -197,7 +196,6 @@ async def edit_interaction(
     follow_up_actions: Optional[str] = None,
     products_discussed: Optional[list[str]] = None,
     ai_summary: Optional[str] = None,
-    user_id: int = 1,
 ) -> str:
     """Edit an existing interaction record.
 
@@ -210,8 +208,8 @@ async def edit_interaction(
         follow_up_actions: Updated actions
         products_discussed: Updated products
         ai_summary: Updated summary
-        user_id: Rep ID
     """
+    user_id = 1
     async with await _get_session() as session:
         try:
             result = await session.execute(
