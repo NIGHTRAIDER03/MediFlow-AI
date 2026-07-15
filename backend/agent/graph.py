@@ -107,6 +107,25 @@ If you need to log an interaction and check compliance, DO NOT do them in the sa
         system_msg = SystemMessage(content="\n".join(context_parts))
         messages = [system_msg] + list(messages)
 
+    # Trim history to avoid 413 Rate Limit Exceeded (6000 TPM limit on Groq)
+    if len(messages) > 8:
+        system_msg = messages[0:1]
+        
+        # Find the most recent HumanMessage in the last 6 messages
+        last_human_idx = -1
+        for i in range(len(messages) - 1, max(0, len(messages) - 7), -1):
+            if getattr(messages[i], "type", "") == "human":
+                last_human_idx = i
+                break
+                
+        if last_human_idx != -1:
+            recent = messages[last_human_idx:]
+        else:
+            # Fallback: keep last 2 messages
+            recent = messages[-2:]
+            
+        messages = system_msg + recent
+
     response = llm.invoke(messages)
 
     return {"messages": [response]}
