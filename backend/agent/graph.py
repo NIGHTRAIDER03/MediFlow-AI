@@ -74,7 +74,12 @@ def agent_node(state: AgentState):
     # Inject system prompt if not present
     if not messages or not isinstance(messages[0], SystemMessage):
         # Build enhanced system prompt with context
-        context_parts = [SYSTEM_PROMPT]
+        system_prompt = """You are MediFlow Copilot, an AI assistant for pharma reps.
+You have tools to log interactions, check compliance, search HCPs, etc.
+CRITICAL RULE: DO NOT CALL MULTIPLE TOOLS AT ONCE. You must ONLY call ONE tool per response. 
+If you need to log an interaction and check compliance, DO NOT do them in the same turn. ONLY call `log_interaction` first. NEVER output more than one tool call at a time.
+"""
+        context_parts = [system_prompt, SYSTEM_PROMPT]
 
         if state.get("current_hcp"):
             hcp = state["current_hcp"]
