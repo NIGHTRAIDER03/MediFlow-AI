@@ -34,11 +34,11 @@ async def _get_session() -> AsyncSession:
 @tool
 async def log_interaction(
     hcp_name: Optional[str] = None,
-    products_discussed: Optional[list[str]] = None,
-    key_topics: Optional[list[str]] = None,
+    products_discussed: Optional[str] = None,
+    key_topics: Optional[str] = None,
     sentiment: Optional[str] = "neutral",
     ai_summary: Optional[str] = None,
-    ai_executive_summary: Optional[dict] = None,
+    ai_executive_summary: Optional[str] = None,
     ai_confidence: Optional[float] = None,
     strategic_insight: Optional[str] = None,
     notes: Optional[str] = None,
@@ -123,7 +123,7 @@ async def log_interaction(
                 follow_up_date=f_date,
                 follow_up_actions=follow_up_actions,
                 ai_summary=ai_summary,
-                ai_executive_summary=ai_executive_summary,
+                ai_executive_summary=json.loads(ai_executive_summary) if isinstance(ai_executive_summary, str) and ai_executive_summary.startswith('{') else ai_executive_summary,
                 ai_confidence=ai_confidence,
                 entities_extracted=entities_extracted,
                 compliance_flags=compliance_flags or {"status": "clean", "flags": []},
@@ -196,11 +196,11 @@ async def log_interaction(
 async def edit_interaction(
     interaction_id: Optional[int] = None,
     sentiment: Optional[str] = None,
-    key_topics: Optional[list[str]] = None,
+    key_topics: Optional[str] = None,
     notes: Optional[str] = None,
     follow_up_date: Optional[str] = None,
     follow_up_actions: Optional[str] = None,
-    products_discussed: Optional[list[str]] = None,
+    products_discussed: Optional[str] = None,
     ai_summary: Optional[str] = None,
     user_id: Optional[int] = None
 ) -> str:
@@ -261,9 +261,10 @@ async def edit_interaction(
                 new_values["follow_up_actions"] = follow_up_actions
 
             if products_discussed is not None:
+                new_products = products_discussed.split(",") if isinstance(products_discussed, str) else products_discussed
                 old_values["products_discussed"] = interaction.products_discussed
-                interaction.products_discussed = products_discussed
-                new_values["products_discussed"] = products_discussed
+                interaction.products_discussed = new_products
+                new_values["products_discussed"] = new_products
 
             if ai_summary is not None:
                 old_values["ai_summary"] = interaction.ai_summary
@@ -482,9 +483,9 @@ async def interaction_timeline(
 async def next_best_action(
     hcp_name: str,
     opportunity_score: Optional[int] = None,
-    reasoning: Optional[list[str]] = None,
-    recommended_actions: Optional[list[str]] = None,
-    suggested_products: Optional[list[str]] = None,
+    reasoning: Optional[str] = None,
+    recommended_actions: Optional[str] = None,
+    suggested_products: Optional[str] = None,
     meeting_prep: Optional[dict] = None,
 ) -> str:
     """Get next best action recommendations for an HCP.
@@ -558,9 +559,9 @@ async def next_best_action(
                     for fu in follow_ups
                 ],
                 "opportunity_score": opportunity_score,
-                "reasoning": reasoning,
-                "recommended_actions": recommended_actions,
-                "suggested_products": suggested_products,
+                "reasoning": reasoning.split(",") if isinstance(reasoning, str) else reasoning,
+                "recommended_actions": recommended_actions.split(",") if isinstance(recommended_actions, str) else recommended_actions,
+                "suggested_products": suggested_products.split(",") if isinstance(suggested_products, str) else suggested_products,
                 "meeting_prep": meeting_prep,
             }
 
@@ -581,7 +582,7 @@ async def next_best_action(
 async def compliance_guardian(
     text: str,
     status: Optional[str] = "clean",
-    flags: Optional[list[str]] = None,
+    flags: Optional[str] = None,
     severity: Optional[str] = "none",
     recommendation: Optional[str] = None,
 ) -> str:
@@ -598,7 +599,7 @@ async def compliance_guardian(
         "success": True,
         "text_checked": text[:200] + "..." if len(text) > 200 else text,
         "status": status,
-        "flags": flags or [],
+        "flags": flags.split(",") if isinstance(flags, str) else (flags or []),
         "severity": severity,
         "recommendation": recommendation or ("No compliance issues detected." if status == "clean" else "Review flagged content with compliance team."),
     })
